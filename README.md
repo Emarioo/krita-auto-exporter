@@ -30,6 +30,8 @@ Here are some examples of regex.
 When you save and the auto exporter resizes the image it will be registered in
 the undo history. The Krita Python API doesn't have access to undo actions so you will have to deal with undo history littered with two resize image everytime you save an auto-exported document. Let me know if you have any ideas on how to solve it.
 
+Saving may be slower than usual since you are also exporting an image (if the document uses auto-export).
+
 <!--
 It's a bigger problem when the visibilty of many layers are changed. Your undo history will be filled with garbage.
 ACTUALL NO, Krita is smart and doesn't add layer property changes to the history since we toggle the visibilty right back. Nicely done Krita developers!
@@ -49,3 +51,4 @@ The plugin creates a directory in it's plugin directory that stores which docume
 # Future features
 - Specify other directory to export to?
 - Log saved files in the log.txt file?
+- A feature to control how frequently you export when saving. Every second or third time for example. Or perhaps an image is exported once under one minute even if you save multiple times during that minute. Another option would be to detect if saving+exporting takes a long time and how much the document has changed and determine if an export is worthwhile.
