@@ -9,6 +9,10 @@ This Krita plugin automatically exports `.png` files when you save documents. Th
 ## Cropping an image
 It's a bit scuffed but you crop by entering four numbers separated by one space in the crop area text box. The first two numbers are the X and Y offset while the last two are the width and height, in pixels.
 
+## Minor inconveniences
+When you save and the auto exporter resizes the image it will be registered in
+the undo history. The Krita Python API doesn't have access to undo actions so we can't really do anything about this. Let me know if you have any ideas.
+
 # Installation
 There are two ways:
 - Clone the repo or somehow download the `auto_exporter` folder and `auto_exporter.desktop` and manually move them into `%APPDATA%/krita/pykrita/`.

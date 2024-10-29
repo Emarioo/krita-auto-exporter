@@ -113,6 +113,7 @@ class AutoExporter(Extension):
         self.app_notifier = None
         self.win = None
         self.current_document = None
+        self.disable = False
         
     def setup(self):
         pass
@@ -135,6 +136,8 @@ class AutoExporter(Extension):
         view.showFloatingMessage(msg, QIcon(), 2000, 1)
     
     def export_image(self, filename):
+        if self.disable:
+            return
         doc = Krita.instance().activeDocument()
         is_export_enabled = get_data("export_enabled."+doc.name())
         if is_export_enabled is None or not bool(is_export_enabled):
@@ -174,7 +177,11 @@ class AutoExporter(Extension):
         h = crop_area[3]
         if h < 0:
             h = doc.height()
-        doc.resizeImage(crop_area[0],crop_area[1],w,h)
+            
+        did_resize = False
+        if crop_area[0] != 0 or crop_area[1] != 0 or w != doc.width() or h != doc.height():
+            doc.resizeImage(crop_area[0],crop_area[1],w,h)
+            did_resize = True
         
         # Export image
         config = InfoObject()
@@ -189,7 +196,8 @@ class AutoExporter(Extension):
         doc.setBatchmode(False)
         
         # Undo crop area
-        doc.resizeImage(prev_area[0],prev_area[1],prev_area[2],prev_area[3])
+        if did_resize:
+            doc.resizeImage(prev_area[0],prev_area[1],prev_area[2],prev_area[3])
         
         # self.show_message(f"Prev area: {prev_area[0]} {prev_area[1]} {prev_area[2]} {prev_area[3]}, Crop area: {exporter_crop_area[0]} {exporter_crop_area[1]} {w} {h}")
         
@@ -200,6 +208,24 @@ class AutoExporter(Extension):
             return
         
         self.show_message("Exporting " + export_path)
+        
+        # BEWARE THIS IS MAGICAL
+        # We save again because we resized the image which changed the document.
+        # Auto exporting on save and resizing the image would result in a document that
+        # can never be fully saved. You would have to undo the two resizes from undo history
+        # or close Krita with unsaved changes (which is fine, document is saved just not the two resize actions by the export plugin)
+        # Ideally we would have access to an undo command in Krita Python API but we
+        # do not as far as I know.
+        self.disable = True # prevent infinite save/export loop
+        # unlock/lock prevents Krita from crashing. My guess is that the python function
+        # is called within an already held lock and so when we try to save again
+        # we crash because we try to lock it again. Unlocking and locking solves the issue.
+        # That is purely speculation, the reason could be something else entirely and we 
+        # should not be doing this sketchy business but I have no idea how to solve this otherwise.
+        doc.unlock()
+        doc.save()
+        doc.lock()
+        self.disable = False
     
     def on_view_changed(self):
         doc = Krita.instance().activeDocument()
@@ -217,66 +243,73 @@ class AutoExporter(Extension):
             global_docker.refresh_ui(doc)
         self.current_document = doc
         
-    def on_window_created(self):
-        # how to deal with multiple windows?
+    def on_view_created(self):
         self.win = Krita.instance().activeWindow()
         self.win.activeViewChanged.connect(self.on_view_changed)
         
-        doc = Krita.instance().activeDocument()
-        if doc is None:
-            log("Created window, no doc")
-        else:
-            log("Created window, " + doc.name())
-    
-    def on_view_created(self):
-        # win = Krita.instance().activeWindow()
-        # win.activeViewChanged.connect(self.on_view_changed)
-        
-        doc = Krita.instance().activeDocument()
-        if doc is None:
-            log("Created view, no doc")
-        else:
-            log("Created view, " + doc.name())
+        # doc = Krita.instance().activeDocument()
+        # if doc is None:
+        #     log("Created view, no doc")
+        # else:
+        #     log("Created view, " + doc.name())
 
     def createActions(self, window):
         self.app_notifier = Krita.instance().notifier()
         self.app_notifier.setActive(True)
         self.app_notifier.imageSaved.connect(self.export_image)
-        self.app_notifier.windowCreated.connect(self.on_window_created)
         self.app_notifier.viewCreated.connect(self.on_view_created)
         
-        # actwin = Krita.instance().activeWindow()
-        # actwin.activeViewChanged.connect(self.on_view_changed)
+        # Window has not been loaded yet and the window argument is
+        # the wrong window.
+        # self.win = Krita.instance().activeWindow()
+        # self.win.activeViewChanged.connect(self.on_view_changed)
 
 class AutoExporterDocker(DockWidget):
     def __init__(self):
         super().__init__()
         global global_docker
         global_docker = self
+        
         self.setWindowTitle("Auto Exporter")
-        self.mainWidget = QWidget(self)
-        self.mainWidget.setLayout(QVBoxLayout()) #  QHBoxLayout
-        self.setWidget(self.mainWidget)
+        mainWidget = QWidget()
+        self.setWidget(mainWidget)
         
-        # buttonExportDocument = QPushButton("Export Document", mainWidget)
-        # mainWidget.layout().addWidget(buttonExportDocument)
-        # buttonExportDocument.clicked.connect(self.exportDocument)
-        
-        self.enable_checkbox = QCheckBox("Export on save", self.mainWidget)
-        self.enable_checkbox.toggled.connect(self.on_export_toggled)
-        self.layout().addWidget(self.enable_checkbox)
-        
-        # home = Path.home()
-        # log_textbox = QLineEdit(mainWidget)
-        # log_textbox.setText(home+"export_log.txt")
-        # mainWidget.layout().addWidget(log_textbox)
-        
-        crop_label = QLabel("Crop area", self.mainWidget)
-        self.mainWidget.layout().addWidget(crop_label)
+        v_layout = QVBoxLayout()
+        mainWidget.setLayout(v_layout)
+        v_layout.setContentsMargins(0,10,0,0)
+        # v_layout.setSpacing(10)
             
-        self.crop_textbox = QLineEdit("0 0 -1 -1", self.mainWidget)
-        self.crop_textbox.textChanged.connect(self.on_crop_changed)
-        self.mainWidget.layout().addWidget(self.crop_textbox)
+        self.enable_checkbox = QCheckBox("Export on save")
+        self.enable_checkbox.toggled.connect(self.on_export_toggled)
+        v_layout.addWidget(self.enable_checkbox)
+        
+        h_layout = QHBoxLayout()
+        v_layout.addLayout(h_layout)
+        
+        crop_label = QLabel("Crop area:")
+        h_layout.addWidget(crop_label)
+        
+        self.crop_x = QSpinBox()
+        self.crop_y = QSpinBox()
+        self.crop_w = QSpinBox()
+        self.crop_h = QSpinBox()
+        max_value = 9999
+        self.crop_x.setRange(-max_value,max_value)
+        self.crop_y.setRange(-max_value,max_value)
+        self.crop_w.setRange(-1,max_value)
+        self.crop_h.setRange(-1,max_value)
+        self.crop_w.setValue(-1)
+        self.crop_h.setValue(-1)
+        self.crop_x.valueChanged.connect(self.on_crop_changed)
+        self.crop_y.valueChanged.connect(self.on_crop_changed)
+        self.crop_w.valueChanged.connect(self.on_crop_changed)
+        self.crop_h.valueChanged.connect(self.on_crop_changed)
+        h_layout.addWidget(self.crop_x)
+        h_layout.addWidget(self.crop_y)
+        h_layout.addWidget(self.crop_w)
+        h_layout.addWidget(self.crop_h)
+        
+        v_layout.addStretch()
         
     def refresh_ui(self, doc):
         crop_text = get_data("crop_area."+doc.name())
@@ -285,11 +318,19 @@ class AutoExporterDocker(DockWidget):
         crop_text = crop_text if crop_text is not None else DEFAULT_CROP_TEXT
         export_enable = export_enabled is not None and bool(export_enabled)
         
+        crop_area = parse_crop_area(crop_text)
+        if crop_area is None:
+            crop_area = DEFAULT_CROP_TEXT
+        
         self.enable_checkbox.setChecked(export_enable)
-        self.crop_textbox.setText(crop_text)
+        self.crop_x.setValue(crop_area[0])
+        self.crop_y.setValue(crop_area[1])
+        self.crop_w.setValue(crop_area[2])
+        self.crop_h.setValue(crop_area[3])
     
-    def on_crop_changed(self, text):
+    def on_crop_changed(self, value):
         doc = Krita.instance().activeDocument()
+        text = str(self.crop_x.value()) + " " + str(self.crop_y.value()) + " " + str(self.crop_w.value()) + " " + str(self.crop_h.value())
         self.show_message("New crop: " + text)
         crop_area = parse_crop_area(text)
         if crop_area is None:
@@ -312,11 +353,8 @@ class AutoExporterDocker(DockWidget):
         set_data("export_enabled."+doc.name(), str(enabled))
         self.show_message("Export on save: " + str(enabled))
     
-
     def canvasChanged(self, canvas):
         pass
 
-
 Krita.instance().addDockWidgetFactory(DockWidgetFactory("auto_exporter_docker", DockWidgetFactoryBase.DockRight, AutoExporterDocker))
-        
 Krita.instance().addExtension(AutoExporter(Krita.instance()))
