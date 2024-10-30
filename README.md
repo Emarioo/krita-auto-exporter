@@ -1,5 +1,5 @@
 # Auto exporter
-This Krita plugin automatically exports `.png` files when you save documents. The file will end up in the same folder as the `.kra` document. The image below shows the **Auto Exporter** docker and an auto-exported image.
+This Krita plugin automatically exports a `.png` "thumbnail" file when you save a document. The file will end up in the same folder as the `.kra` document. The image below shows the **Auto Exporter** docker and an auto-exported image.
 
 ![](/docs/img/example.png)
 
@@ -39,11 +39,12 @@ Still want that undo feature in Python plugins though.
 -->
 
 # Installation
-There are two ways:
-- Clone the repo or somehow download the `auto_exporter` folder and `auto_exporter.desktop` and manually move them into `%APPDATA%/krita/pykrita/`. You could run `install.bat` which installs it for you but it is mainly meant for use during development.
-- Download the latest release and in Krita go to *Tools > Scripts > Import Python from File* and select the downloaded zip file.
+There are Three ways:
+- Go into *Tools > Scripts > Import Python from Web* and paste `https://github.com/Emarioo/krita-auto-exporter` into the text box.
+- Download the latest release (zip file) and in Krita go to *Tools > Scripts > Import Python from File* and select the downloaded zip file.
+- Clone the repo and move the contents of `krita_plugin` into `%APPDATA%/krita/pykrita/` (contents being `auto_exporter` and `auto_exporter.desktop`). You could run `install.bat` which will automatically move the contents but it is mainly meant for use during development.
 
-Don't forget to enable **Auto Exporter** in *Configure Krita > Python Plugins Manager*.
+Don't forget to enable **Auto Exporter** in *Configure Krita > Python Plugins Manager*. You may need to restart once after importing the plugin and a second time after enabling it.
 
 # Implementation notes
 The plugin creates a directory in it's plugin directory that stores which documents the auto-export is enabled for among other things (`auto_exporter/user_data/export_settings.txt`). There is also a log file used when debugging (`auto_exporter/user_data/log.txt`).
@@ -52,3 +53,4 @@ The plugin creates a directory in it's plugin directory that stores which docume
 - Specify other directory to export to?
 - Log saved files in the log.txt file?
 - A feature to control how frequently you export when saving. Every second or third time for example. Or perhaps an image is exported once under one minute even if you save multiple times during that minute. Another option would be to detect if saving+exporting takes a long time and how much the document has changed and determine if an export is worthwhile.
+- Use QSettings instead of `user_data/export_settings.txt`.
