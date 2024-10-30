@@ -4,7 +4,6 @@ Hello Python developer!
 I keep all code in one file because it's super easy to navigate.
 '''
 
-
 from krita import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
@@ -34,6 +33,7 @@ class AutoExporter(Extension):
         self.win = None
         self.current_document = None
         self.disable = False
+        self.timed_objects = []
         
     def setup(self):
         pass
@@ -155,20 +155,34 @@ class AutoExporter(Extension):
         
         show_message("Exported " + export_path)
         
-        # We save again because we resized the image which changed the document.
+        # We want to save again because we resized the image which changed the document.
         # Auto exporting on save and resizing the image would result in a document that
         # can never be fully saved. You would have to undo the two resizes from undo history
         # or close Krita with unsaved changes (which is fine, document is saved just not the two resize actions by the export plugin)
         # Ideally we would have access to an undo command in Krita Python API but we
         # do not as far as I know.
-        # We crash if we save again. Don't know why. I tried to doc.unlock which worked
-        # once but crashes sometimes.
-        # self.disable = True # prevent infinite save/export loop
-        # doc.unlock()
-        # doc.save()
-        # doc.lock()
-        # self.disable = False
-    
+        
+        # Yup, this code is scuffed.
+        # We can't call doc.save() directly in this function because Krita crashes.
+        # Not sure why, some recursive business maybe or ownership/lock problems?
+        # We can delay the save using QTimer. This helped me figure out that QTimer is a thing: https://github.com/silentorb/krita_auto_export/blob/master/plugins/autoexport/autoexport.py
+        class TimeObj():
+            def __init__(self, doc, docker):
+                self.doc = doc
+                self.docker = docker
+                
+            def tick(self):
+                self.docker.disable = True # prevent infinite save/export loop
+                self.doc.save()
+                self.docker.disable = False
+                self.docker.timed_objects.remove(self)
+        
+        obj = TimeObj(doc, self)
+        self.timed_objects.append(obj) # we need to save timed_objects, garbage collector will delete it otherwise
+        # We set 'msec' argument to singleShot to zero because we might as well save
+        # as soon as possible. QTimer will execute once we have finished the current save (i am guessing our export_image function is called inside the doc.save function)
+        QTimer.singleShot(0, obj.tick)
+        
     def on_view_created(self):
         self.win = Krita.instance().activeWindow()
         self.win.activeViewChanged.connect(self.on_view_changed)
